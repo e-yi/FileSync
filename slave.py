@@ -27,19 +27,20 @@ def checkPath(path):
     return CODE_DIR_EMPTY
 
 
-doQuit = False
+__doQuit = False
 
 
 def close():
-    global doQuit
-    doQuit = True
+    global __doQuit
+    __doQuit = True
     return True
 
 
-server = SimpleXMLRPCServer(("0.0.0.0", PORT))
-print "start service get power on 0.0.0.0 8081..."
-server.register_function(checkPath, "check_path")
-server.register_function(close, 'close_server')
-while not doQuit:
-    server.handle_request()
-
+if __name__ == '__main__':
+    server = SimpleXMLRPCServer(("0.0.0.0", PORT))
+    print "start remote service on 0.0.0.0 8081..."
+    server.register_function(checkPath, "check_path")
+    server.register_function(close, 'close_server')
+    while not __doQuit:
+        server.handle_request()
+    print "end remote service on 0.0.0.0 8081..."

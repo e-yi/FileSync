@@ -130,12 +130,16 @@ class FileSync:
         """
         初始化
         将slave发送到对应目录下并运行
-        echo mode 检查文件夹是否为空并询问是否删除，结束
+        echo mode        检查文件夹是否为空并询问是否删除，结束
         synchronize mode 检查文件夹是否为空并询问是否删除，开始运行
         :return:
         """
 
         TEMP_DIR = '/tmp/filesync/'
+
+        # create remore TEMP_DIR
+        cmd = "mkdir -p %s" % TEMP_DIR
+        doRemoteCmd(self.config, cmd, printOut=True)
 
         # 传输slave脚本并运行
         # slaveDest = os.path.join(self.remoteInfoDir, 'slave.py')
