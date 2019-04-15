@@ -22,10 +22,14 @@ def getSSHInstance(cnf):
     return ssh
 
 
-def doRemoteCmd(cnf, strcmd):
+def doRemoteCmd(cnf, strcmd, printOut=False):
     ssh = getSSHInstance(cnf)
     print(strcmd)
     stdin, stdout, stderr = ssh.exec_command(strcmd)
+    if printOut:
+        print(stdout.read(), end='')
+        print(stderr.read(), end='')
+        return None
     return stdin, stdout, stderr
 
 
@@ -64,3 +68,19 @@ def scp(srcPath, dstPath, cnf):
     sftp = ssh.open_sftp()
     sftp.put(srcPath, dstPath)
     ssh.close()
+
+
+def getAnswer(question):
+    """
+    要求用户用 y 或 n 回答问题
+    :param question:
+    :return:
+    """
+    while True:
+        ans = raw_input(question)
+        if ans == 'y':
+            return True
+        elif ans == 'n':
+            return False
+        else:
+            continue
