@@ -11,7 +11,8 @@ from collections import defaultdict
 from config import ConfigData
 from utils import *
 
-MD5_FILE = '.filesync'
+INFO_DIR = '.filesync/'
+MD5_FILE = 'md5'
 IGNORE_FILE = '.fileignore'
 
 
@@ -30,6 +31,11 @@ class FileSync:
         # 读取配置文件
         self.config = ConfigData(configFileName)
 
+        # 建立存放同步用数据的文件夹
+        self.infoDir = os.path.join(self.config.currentDir, INFO_DIR)
+        if not os.path.exists(self.infoDir):
+            os.makedirs(self.infoDir)
+
         # 读取本地同步文件夹信息
         self._loadDir()
 
@@ -42,7 +48,7 @@ class FileSync:
         """
         self.__loadIgnoreDFS(self.config.currentDir)
         self.__loadMD5DFS(self.config.currentDir)
-        self._dumpMD5(self.config.currentDir)
+        self._dumpMD5(self.infoDir)
 
     def __loadIgnoreDFS(self, curDir):
         if curDir[-1] != '/':
@@ -100,7 +106,7 @@ class FileSync:
 
         md5FilePath = os.path.join(path, MD5_FILE)
         data = [(fileName, md5, time) for fileName, (md5, time) in self.file2md5time.iteritems()]
-        content = '\n'.join(['|'.join(map(str, i)) for i in sorted(data, key=lambda x:x[0])])
+        content = '\n'.join(['|'.join(map(str, i)) for i in sorted(data, key=lambda x: x[0])])
         with open(md5FilePath, 'w') as f:
             f.write(content)
 
