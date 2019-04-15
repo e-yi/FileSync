@@ -1,0 +1,8 @@
+<config>
+    <host>127.0.0.1</host>
+    <sshPort>22</sshPort>
+    <user>root</user>
+    <password>123456</password>
+    <localDir>.</localDir>
+    <remoteDir>/tmp/t1</remoteDir>
+</config>        
