@@ -62,6 +62,13 @@ class ConfigData:
         self.currentDir = self.getSectionText("localDir").strip()
         self.currentDir = os.path.abspath(self.currentDir)
         self.remoteDir = self.getSectionText("remoteDir").strip()
+
+        if self.remoteDir[-1] != '/':
+            self.remoteDir += '/'
+
+        if self.currentDir[-1] != '/':
+            self.currentDir += '/'
+
         return None
 
     def testConfig(self):

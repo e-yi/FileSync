@@ -9,6 +9,7 @@ from __future__ import print_function
 
 import argparse
 import re
+import traceback
 import xmlrpclib
 from collections import defaultdict
 from time import time as timestamp
@@ -21,19 +22,21 @@ from config import ConfigData
 from syncHandler import SyncHandler
 from utils import *
 
-INFO_DIR = '.filesync/'
-MD5_FILE = 'md5'
-IGNORE_FILE = '.fileignore'
-
-MODE_ECHO = 'echo'
-MODE_SYNCHRONIZE = 'synchronize'
-
 
 class FileSync:
+    INFO_DIR = '.filesync/'
+    MD5_FILE = 'md5'
+    IGNORE_FILE = '.fileignore'
 
-    def __init__(self, configFileName, mode):
+    MODE_ECHO = 'echo'
+    MODE_SYNCHRONIZE = 'synchronize'
+
+    def __init__(self, configFileName, mode, time_cycle):
         # 同步模式
         self.mode = mode
+
+        # 自动同步时间
+        self.time_cycle = time_cycle
 
         # 符合条件的路径会被排除   {dir:[re]}
         self.ignoreExp = defaultdict(list)
@@ -45,11 +48,11 @@ class FileSync:
         self.config = ConfigData(configFileName)
 
         # 建立存放同步用数据的文件夹
-        self.infoDir = os.path.join(self.config.currentDir, INFO_DIR)
+        self.infoDir = os.path.join(self.config.currentDir, self.INFO_DIR)
         if not os.path.exists(self.infoDir):
             os.makedirs(self.infoDir)
 
-        self.remoteInfoDir = os.path.join(self.config.remoteDir, INFO_DIR)
+        self.remoteInfoDir = os.path.join(self.config.remoteDir, self.INFO_DIR)
 
         # 读取本地同步文件夹信息
         self._loadDir()
@@ -63,17 +66,26 @@ class FileSync:
         """
         self.__updateDirIgnore(self.config.currentDir)
         self.__updateDirMD5(self.config.currentDir)
-        self._dumpMD5(self.infoDir)
+        self.dumpMD5(self.infoDir)
 
-    def _updateIgnore(self, curDir):
+    def updateIgnore(self, curDir):
         """
         读取`curDir`路径下的.fileignore文件
+        当文件不存在时，删除`self.ignoreExp`中对应键值对
         :param curDir:
         :return:
         """
         changed = False
 
-        ignoreFile = os.path.join(curDir, IGNORE_FILE)
+        ignoreFile = os.path.join(curDir, self.IGNORE_FILE)
+
+        if not os.path.exists(ignoreFile):
+            if not self.ignoreExp[curDir]:
+                return False
+            else:
+                del self.ignoreExp[curDir]
+                return True
+
         with open(ignoreFile, 'r') as f:
             exps = f.read().split('\n')
 
@@ -106,8 +118,8 @@ class FileSync:
 
         fileNames = os.listdir(curDir)
 
-        if IGNORE_FILE in fileNames:
-            self._updateIgnore(curDir)
+        if self.IGNORE_FILE in fileNames:
+            self.updateIgnore(curDir)
 
         for filename in os.listdir(curDir):
             fullPath = os.path.join(curDir, filename)
@@ -135,22 +147,30 @@ class FileSync:
             else:
                 fun(fullPath)
 
-    def _updateMD5(self, fullPath):
+    def updateMD5(self, fullPath):
         """
-        当md5变化时，文件粒度更新self.file2md5time
+        当md5变化时，文件粒度更新`self.file2md5time`
+        当文件不存在时，删除`self.file2md5time`中对应键值对
         :param fullPath:
         :return: bool 是否更新了self.file2md5time
         """
-        changed = False
 
-        oldMd5 = self.file2md5time.get(fullPath, '')
+        oldMd5 = self.file2md5time.get(fullPath, None)
+
+        if not os.path.exists(fullPath):
+            if oldMd5 is None:
+                return False
+            else:
+                del self.file2md5time[fullPath]
+                return True
+
         newMd5 = file2md5(fullPath)
         if oldMd5 != newMd5:
             time = timestamp()
             self.file2md5time[fullPath] = (newMd5, time)
-            changed = True
+            return True
 
-        return changed
+        return False
 
     def __updateDirMD5(self, curDir):
         """
@@ -158,35 +178,63 @@ class FileSync:
         :param curDir:
         :return:
         """
-        self.__DFSIncludedFile(curDir, self.__updateMD5)
+        self.__DFSIncludedFile(curDir, self.updateMD5)
 
     def __isIgnore(self, fileName, parentDir):
         """
         检查一个文件是否符合忽略规则
+        !!!无法检测祖先文件夹是否被忽略，在此情况下失效
         :param fileName:
         :param parentDir:
         :return:
         """
-        if fileName == INFO_DIR[:-1]:
-            return False
+        if fileName == self.INFO_DIR[:-1]:
+            return True
+        assert parentDir[-1] == '/'
 
         ignore = False
+        # if not self.ignoreExp[parentDir] : skip for loop
         for exp in self.ignoreExp[parentDir]:
             if re.match(exp, fileName):
                 ignore = True
                 break
         return ignore
 
-    def _dumpMD5(self, path):
+    def isIgnorePlus(self, fullPath):
+        """
+        检查一个文件是否符合忽略规则
+        :param fullPath:
+        :return:
+        """
+        curFile = os.path.basename(fullPath)
+        curDir = os.path.dirname(fullPath) + '/'
+
+        while True:
+            ignore = self.__isIgnore(curFile, curDir)
+            if ignore:
+                return True
+
+            if curDir == self.config.currentDir:
+                break
+
+            curFile = os.path.basename(curDir[:-1])
+            curDir = os.path.dirname(curDir[:-1]) + '/'
+
+        return False
+
+    def dumpMD5(self, path=None):
         """
         将self.file2md5time中的数据导出到文件
         :param path:
         :return:
         """
+        if not path:
+            path = self.infoDir
+
         if path[-1] != '/':
             path += '/'
 
-        md5FilePath = os.path.join(path, MD5_FILE)
+        md5FilePath = os.path.join(path, self.MD5_FILE)
         data = [(fileName, md5, time) for fileName, (md5, time) in self.file2md5time.iteritems()]
         content = '\n'.join(['|'.join(map(str, i)) for i in sorted(data, key=lambda x: x[0])])
         with open(md5FilePath, 'w') as f:
@@ -225,7 +273,7 @@ class FileSync:
             print('remote directory is empty\nstart sync now...')
         elif code == slave.CODE_DIR_NOT_EMPTY:
             print('remote directory %s is NOT empty!' % self.config.remoteDir)
-            agree = getAnswer('delete all before sync? y/n')
+            agree = getAnswer('delete all before sync? y/n\n')
             if agree:
                 doRemoteCmd(self.config, 'rm %s -rf' % self.config.remoteDir)
             else:
@@ -246,9 +294,9 @@ class FileSync:
         self.__DFSIncludedFile(self.config.currentDir,
                                lambda path: doScp(path, self.config))
 
-        if self.mode == MODE_ECHO:
+        if self.mode == self.MODE_ECHO:
             pass
-        elif self.mode == MODE_SYNCHRONIZE:
+        elif self.mode == self.MODE_SYNCHRONIZE:
             # todo
             print('unsupported')
             exit(1)
@@ -264,9 +312,11 @@ class FileSync:
         observer.schedule(event_handler, path=self.config.currentDir, recursive=True)
         observer.start()
 
+        print("\n----watchdog start working----\n")
+
         try:
             while True:
-                sleep(1)
+                sleep(self.time_cycle)
         except KeyboardInterrupt:
             observer.stop()
         observer.join()
@@ -283,11 +333,11 @@ if __name__ == '__main__':
         parser.add_argument('--time_cycle', help='time interval between two synchronizations',
                             default=10, type=int)
         parser.add_argument('--mode',
-                            choices=[MODE_SYNCHRONIZE, MODE_ECHO],
+                            choices=[FileSync.MODE_SYNCHRONIZE, FileSync.MODE_ECHO],
                             help='synchronize mode',  # todo
-                            default=MODE_ECHO)
+                            default=FileSync.MODE_ECHO)
 
         args = parser.parse_args()
 
-        fileSync = FileSync(args.config_file, args.mode)
+        fileSync = FileSync(args.config_file, args.mode, args.time_cycle)
         fileSync.run()

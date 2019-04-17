@@ -7,7 +7,7 @@ import hashlib
 import os
 
 import paramiko
-import traceback
+
 
 
 def getSSHInstance(cnf):
