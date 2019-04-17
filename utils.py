@@ -55,12 +55,11 @@ def doScp(srcPath, cnf):
     stdin, stdout, stderr = ssh.exec_command(strcmd)
     print(stdout.read(), end='')
     print(stderr.read(), end='')
-    # sftp = paramiko.SFTPClient.from_transport(ssh.get_transport())
     sftp = ssh.open_sftp()
     sftp.put(srcPath, dstFile)
     ssh.close()
 
-    return stdin, stdout, stderr
+    return None
 
 
 def scp(srcPath, dstPath, cnf):

@@ -19,3 +19,6 @@ bin file is in  autoSync/dist
 
 pyinstaller ：https://github.com/pyinstaller/pyinstaller
 
+to remove CryptographyDeprecationWarning
+use `pip install cryptography==2.4.2`
+
