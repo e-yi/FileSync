@@ -1,16 +1,24 @@
 #!/usr/bin python
 # -*- coding:utf-8 -*-
+"""
+watchdog 使用了 inotify
+
+"""
+
 from __future__ import print_function
 
 import argparse
-import os
 import re
 import xmlrpclib
-from time import time as timestamp
 from collections import defaultdict
+from time import time as timestamp
+from time import sleep
+
+from watchdog.observers import Observer
 
 import slave
 from config import ConfigData
+from syncHandler import SyncHandler
 from utils import *
 
 INFO_DIR = '.filesync/'
@@ -53,36 +61,66 @@ class FileSync:
         导出.filesync文件
         :return:
         """
-        self.__loadIgnore(self.config.currentDir)
-        self.__loadMD5(self.config.currentDir)
+        self.__updateDirIgnore(self.config.currentDir)
+        self.__updateDirMD5(self.config.currentDir)
         self._dumpMD5(self.infoDir)
 
-    def __loadIgnore(self, curDir):
+    def _updateIgnore(self, curDir):
+        """
+        读取`curDir`路径下的.fileignore文件
+        :param curDir:
+        :return:
+        """
+        changed = False
+
+        ignoreFile = os.path.join(curDir, IGNORE_FILE)
+        with open(ignoreFile, 'r') as f:
+            exps = f.read().split('\n')
+
+        exps.sort()  # 保证用户以不同顺序写的两组相同表达式不会影响`changed`变量
+
+        oldExps = self.ignoreExp.get(curDir, [])
+
+        newExps = []
+        for exp in map(str.strip, exps):
+            try:
+                re.compile(exp)  # 测试表达式
+                newExps.append(exp)  # 无法处理 修改.fileignore事件 故取消预编译设计
+            except:
+                print(traceback.format_exc())
+
+        if newExps != oldExps:  # 这里的比较是逐元素比较
+            self.ignoreExp[curDir] = newExps
+            changed = True
+
+        return changed
+
+    def __updateDirIgnore(self, curDir):
+        """
+        DFS文件路径，读取所有的.fileignore文件
+        :param curDir:
+        :return:
+        """
         if curDir[-1] != '/':
             curDir += '/'
 
         fileNames = os.listdir(curDir)
 
         if IGNORE_FILE in fileNames:
-            ignoreFile = os.path.join(curDir, IGNORE_FILE)
-            with open(ignoreFile, 'r') as f:
-                exps = f.read().split('\n')
-
-            for exp in map(str.strip, exps):
-                try:
-                    re.compile(exp)  # 测试表达式
-                    self.ignoreExp[curDir].append(exp)
-                    # 无法处理 修改.fileignore事件 故取消预编译设计
-                    # self.exceptRegularExp.append(exp_compiled)
-                except:
-                    print(traceback.format_exc())
+            self._updateIgnore(curDir)
 
         for filename in os.listdir(curDir):
             fullPath = os.path.join(curDir, filename)
             if os.path.isdir(fullPath):
-                self.__loadIgnore(fullPath)
+                self.__updateDirIgnore(fullPath)
 
     def __DFSIncludedFile(self, curDir, fun):
+        """
+        辅助函数DFS遍历未被忽略的函数
+        :param curDir:
+        :param fun: function(fullPath):void
+        :return:
+        """
         if curDir[-1] != '/':
             curDir += '/'
 
@@ -97,26 +135,54 @@ class FileSync:
             else:
                 fun(fullPath)
 
-    def __loadMD5(self, curDir):
-        def fun(fullPath):
-            newMd5 = file2md5(fullPath)
+    def _updateMD5(self, fullPath):
+        """
+        当md5变化时，文件粒度更新self.file2md5time
+        :param fullPath:
+        :return: bool 是否更新了self.file2md5time
+        """
+        changed = False
+
+        oldMd5 = self.file2md5time.get(fullPath, '')
+        newMd5 = file2md5(fullPath)
+        if oldMd5 != newMd5:
             time = timestamp()
             self.file2md5time[fullPath] = (newMd5, time)
+            changed = True
 
-        self.__DFSIncludedFile(curDir, fun)
+        return changed
 
-    def __isIgnore(self, i, path):
-        if i == INFO_DIR[:-1]:
+    def __updateDirMD5(self, curDir):
+        """
+        文件夹粒度更新md5
+        :param curDir:
+        :return:
+        """
+        self.__DFSIncludedFile(curDir, self.__updateMD5)
+
+    def __isIgnore(self, fileName, parentDir):
+        """
+        检查一个文件是否符合忽略规则
+        :param fileName:
+        :param parentDir:
+        :return:
+        """
+        if fileName == INFO_DIR[:-1]:
             return False
 
         ignore = False
-        for exp in self.ignoreExp[path]:
-            if re.match(exp, i):
+        for exp in self.ignoreExp[parentDir]:
+            if re.match(exp, fileName):
                 ignore = True
                 break
         return ignore
 
     def _dumpMD5(self, path):
+        """
+        将self.file2md5time中的数据导出到文件
+        :param path:
+        :return:
+        """
         if path[-1] != '/':
             path += '/'
 
@@ -135,6 +201,7 @@ class FileSync:
         :return:
         """
 
+        # 暂时存放slave.py的位置
         TEMP_DIR = '/tmp/filesync/'
 
         # create remore TEMP_DIR
@@ -179,9 +246,9 @@ class FileSync:
         self.__DFSIncludedFile(self.config.currentDir,
                                lambda path: doScp(path, self.config))
 
-        if mode == MODE_ECHO:
+        if self.mode == MODE_ECHO:
             pass
-        elif mode == MODE_SYNCHRONIZE:
+        elif self.mode == MODE_SYNCHRONIZE:
             # todo
             print('unsupported')
             exit(1)
@@ -191,7 +258,18 @@ class FileSync:
         开始监听本地动作
         :return:
         """
-        pass
+        # do sync on modify
+        event_handler = SyncHandler(self.config, self.mode, self)
+        observer = Observer()
+        observer.schedule(event_handler, path=self.config.currentDir, recursive=True)
+        observer.start()
+
+        try:
+            while True:
+                sleep(1)
+        except KeyboardInterrupt:
+            observer.stop()
+        observer.join()
 
     def run(self):
         self._init()
@@ -202,6 +280,8 @@ if __name__ == '__main__':
     if __name__ == '__main__':
         parser = argparse.ArgumentParser()
         parser.add_argument('--config_file', help='path/to/config/file', default='./conf.xml')
+        parser.add_argument('--time_cycle', help='time interval between two synchronizations',
+                            default=10, type=int)
         parser.add_argument('--mode',
                             choices=[MODE_SYNCHRONIZE, MODE_ECHO],
                             help='synchronize mode',  # todo
@@ -209,8 +289,5 @@ if __name__ == '__main__':
 
         args = parser.parse_args()
 
-        confFile = args.config_file
-        mode = args.mode
-
-        fileSync = FileSync(confFile, mode)
+        fileSync = FileSync(args.config_file, args.mode)
         fileSync.run()
