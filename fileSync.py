@@ -31,12 +31,15 @@ class FileSync:
     MODE_ECHO = 'echo'
     MODE_SYNCHRONIZE = 'synchronize'
 
-    def __init__(self, configFileName, mode, time_cycle):
+    def __init__(self, configFileName, mode, time_cycle, d):
         # 同步模式
         self.mode = mode
 
         # 自动同步时间
         self.time_cycle = time_cycle
+
+        # 自动在同步前清空远端文件夹
+        self.autoDelete = d
 
         # 符合条件的路径会被排除   {dir:[re]}
         self.ignoreExp = defaultdict(list)
@@ -188,7 +191,7 @@ class FileSync:
         :param parentDir:
         :return:
         """
-        if fileName == self.INFO_DIR[:-1]:
+        if fileName == self.INFO_DIR[:-1] or fileName == self.IGNORE_FILE:
             return True
         assert parentDir[-1] == '/'
 
@@ -270,10 +273,13 @@ class FileSync:
             "http://%s:%d/" % (self.config.ssh_host, slave.PORT))
         code = server.check_path(self.config.remoteDir)
         if code == slave.CODE_DIR_EMPTY:
-            print('remote directory is empty\nstart sync now...')
+            print('remote directory is empty')
         elif code == slave.CODE_DIR_NOT_EMPTY:
             print('remote directory %s is NOT empty!' % self.config.remoteDir)
-            agree = getAnswer('delete all before sync? y/n\n')
+            if self.autoDelete:
+                agree = True
+            else:
+                agree = getAnswer('delete all before sync? y/n\n')
             if agree:
                 doRemoteCmd(self.config, 'rm %s -rf' % self.config.remoteDir)
             else:
@@ -286,6 +292,8 @@ class FileSync:
             exit(1)
         server.close_server()
 
+        print('\nstart sync now...\n')
+
         # create remore infoDir
         cmd = "mkdir -p %s" % self.remoteInfoDir
         doRemoteCmd(self.config, cmd, printOut=True)
@@ -297,9 +305,24 @@ class FileSync:
         if self.mode == self.MODE_ECHO:
             pass
         elif self.mode == self.MODE_SYNCHRONIZE:
-            # todo
-            print('unsupported')
-            exit(1)
+            self.__initSynchronize()
+
+    def __initSynchronize(self):
+        """
+        将slave传到remoteInfoDir
+        启动slave，建立远端md5文件，开始远端的本地监听，在本地要求同步时，提供对应文件的md5和时间标记
+        todo 通信安全
+        :return:
+        """
+        pass
+        # # 传输slave脚本并运行
+        # slaveDest = os.path.join(self.remoteInfoDir, 'slave.py')
+        # scp('./slave.py', slaveDest, self.config)  # 需要添加故障检测？
+        # # slaveLog = os.path.join(self.remoteInfoDir, 'slave.log')
+        # slaveLog = os.path.join(self.remoteInfoDir, 'slave.log')
+        # cmd = 'nohup python %s --mode %s 1>%s 2>&1 &'
+        # doRemoteCmd(self.config, cmd % (slaveDest, self.mode, slaveLog))
+
 
     def _run(self):
         """
@@ -334,10 +357,12 @@ if __name__ == '__main__':
                             default=10, type=int)
         parser.add_argument('--mode',
                             choices=[FileSync.MODE_SYNCHRONIZE, FileSync.MODE_ECHO],
-                            help='synchronize mode',  # todo
+                            help='choose filesync mode',  # todo
                             default=FileSync.MODE_ECHO)
+        parser.add_argument('-d', action='store_true',
+                            help="auto delete existing files in remote directory")
 
         args = parser.parse_args()
 
-        fileSync = FileSync(args.config_file, args.mode, args.time_cycle)
+        fileSync = FileSync(args.config_file, args.mode, args.time_cycle, args.d)
         fileSync.run()

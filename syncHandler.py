@@ -1,13 +1,8 @@
 #!/usr/bin python
 # -*- coding:utf-8 -*-
 from __future__ import print_function
-
-import os
-
 from watchdog.events import FileSystemEventHandler
 
-
-# todo 改成支持re的
 from utils import *
 
 
@@ -17,6 +12,7 @@ class SyncHandler(FileSystemEventHandler):
     echo模式更新md5，同步。如果是.fileignore文件则更新ignore规则。sync模式则在更新md5前和
     远端确认下版本。
     """
+
     def __init__(self, conf, mode, fileSync):
         self.conf = conf
         self.mode = mode
@@ -25,31 +21,40 @@ class SyncHandler(FileSystemEventHandler):
     def doFileSync(self, src_path):
         srcPath = os.path.abspath(src_path)
 
-        if os.path.isdir(srcPath) or \
-                self.fileSync.isIgnorePlus(srcPath):
+        if os.path.isdir(srcPath):
+            return
+
+        # 更新ignore规则
+        if os.path.basename(srcPath) == self.fileSync.IGNORE_FILE:
+            self.fileSync.updateIgnore(os.path.dirname(srcPath))
+            return
+
+        if self.fileSync.isIgnorePlus(srcPath):
             return
 
         # 尝试更新md5规则
         changed = self.fileSync.updateMD5(srcPath)
         if changed:
-
             # 同步
             doScp(srcPath, self.conf)
 
             # 更新md5文件
             self.fileSync.dumpMD5()
 
-            # 更新ignore规则
-            if os.path.basename(srcPath) == self.fileSync.IGNORE_FILE:
-                self.fileSync.updateIgnore(os.path.dirname(srcPath))
-
         return None
 
     def doFileDelete(self, src_path):
         srcPath = os.path.abspath(src_path)
 
-        if os.path.isdir(srcPath) or \
-                self.fileSync.isIgnorePlus(srcPath):
+        if os.path.isdir(srcPath):
+            return
+
+        # 更新ignore规则
+        if os.path.basename(srcPath) == self.fileSync.IGNORE_FILE:
+            self.fileSync.updateIgnore(os.path.dirname(srcPath))
+            return
+
+        if self.fileSync.isIgnorePlus(srcPath):
             return
 
         # 尝试更新md5规则
@@ -65,10 +70,6 @@ class SyncHandler(FileSystemEventHandler):
 
             # 更新md5文件
             self.fileSync.dumpMD5()
-
-            # 更新ignore规则
-            if os.path.basename(srcPath) == self.fileSync.IGNORE_FILE:
-                self.fileSync.updateIgnore(os.path.dirname(srcPath))
 
         return None
 
