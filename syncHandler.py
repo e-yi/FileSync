@@ -6,6 +6,8 @@ from watchdog.events import FileSystemEventHandler
 from utils import *
 
 
+# todo 从salve端发送更新请求 & 自身请求
+
 class SyncHandler(FileSystemEventHandler):
     """
     对各种事件的处理：增、改、删、文件移动
@@ -16,7 +18,7 @@ class SyncHandler(FileSystemEventHandler):
     def __init__(self, conf, mode, fileSync):
         self.conf = conf
         self.mode = mode
-        self.fileSync = fileSync  # todo 检查是否真的需要传一整个FileSync进来
+        self.fileSync = fileSync
 
     def doFileSync(self, src_path):
         srcPath = os.path.abspath(src_path)
@@ -33,10 +35,35 @@ class SyncHandler(FileSystemEventHandler):
             return
 
         # 尝试更新md5规则
-        changed = self.fileSync.updateMD5(srcPath)
+        changed, oldMd5, oldTime = self.fileSync.updateMD5(srcPath)
         if changed:
             # 同步
-            doScp(srcPath, self.conf)
+            if self.mode == self.fileSync.MODE_ECHO:
+                doScp(srcPath, self.conf)
+            elif self.mode == self.fileSync.MODE_SYNCHRONIZE:
+                newMd5, newTime = self.fileSync.file2md5time[srcPath]
+
+                dstPath = getRemotePath(srcPath, self.conf.currentDir, self.conf.remoteDir)
+                remoteMd5, remoteTime = get_md5_time(
+                    dstPath, self.conf.ssh_host, self.fileSync.rpc_port)
+
+                if remoteMd5 is None:
+                    # the remote file does not exist
+                    doScp(srcPath, self.conf)
+                elif remoteMd5 == newMd5:
+                    # do nothing
+                    return
+                elif remoteMd5 == oldMd5:
+                    # copy to remote
+                    doScp(srcPath, self.conf)
+                else:
+                    # the newer version get copied
+                    if remoteTime < newTime:
+                        doScp(srcPath, self.conf)
+                    else:
+                        doScp(dstPath, self.conf, get=True)
+            else:
+                raise Exception("unsupported mode")
 
             # 更新md5文件
             self.fileSync.dumpMD5()
@@ -58,19 +85,33 @@ class SyncHandler(FileSystemEventHandler):
             return
 
         # 尝试更新md5规则
-        changed = self.fileSync.updateMD5(srcPath)
+        changed, oldMd5, oldTime = self.fileSync.updateMD5(srcPath)
         if changed:
-
             # 同步
-            srcFile = os.path.relpath(srcPath, self.conf.currentDir)
-            dstFile = os.path.join(self.conf.remoteDir, srcFile)
-            if dstFile:
-                strcmd = "rm -f {0}".format(dstFile)
+            dstPath = getRemotePath(srcPath, self.conf.currentDir, self.conf.remoteDir)
+
+            if self.mode == self.fileSync.MODE_ECHO:
+                strcmd = "rm -f {0}".format(dstPath)
                 doRemoteCmd(self.conf, strcmd, printOut=True)
+            elif self.mode == self.fileSync.MODE_SYNCHRONIZE:
+                remoteMd5, remoteTime = get_md5_time(
+                    dstPath, self.conf.ssh_host, self.fileSync.rpc_port)
+
+                if remoteMd5 is None:
+                    # the remote file does not exist
+                    return
+                elif remoteMd5 == oldMd5:
+                    # delete remote
+                    strcmd = "rm -f {0}".format(dstPath)
+                    doRemoteCmd(self.conf, strcmd, printOut=True)
+                else:
+                    # copy from remote
+                    doScp(dstPath, self.conf, get=True)
+            else:
+                raise Exception("unsupported mode")
 
             # 更新md5文件
             self.fileSync.dumpMD5()
-
         return None
 
     def dispatch(self, event):
@@ -78,6 +119,9 @@ class SyncHandler(FileSystemEventHandler):
 
     def on_any_event(self, event):
         super(SyncHandler, self).on_any_event(event)
+        a = list(event.key)
+        a[2] = '/' if a[2] else ''
+        print('event "{}" in {}{}'.format(*tuple(a)))
 
     def on_created(self, event):
         """
@@ -87,7 +131,6 @@ class SyncHandler(FileSystemEventHandler):
         :param event:
         :return:
         """
-        print(event.key)
         self.doFileSync(event.src_path)
 
     def on_modified(self, event):
@@ -98,7 +141,6 @@ class SyncHandler(FileSystemEventHandler):
         :param event:
         :return:
         """
-        print(event.key)
         self.doFileSync(event.src_path)
 
     def on_deleted(self, event):
@@ -109,7 +151,6 @@ class SyncHandler(FileSystemEventHandler):
         :param event:
         :return:
         """
-        print(event.key)
         self.doFileDelete(event.src_path)
 
     def on_moved(self, event):
@@ -120,6 +161,5 @@ class SyncHandler(FileSystemEventHandler):
         :param event:
         :return:
         """
-        print(event.key)
         self.doFileDelete(event.src_path)
         self.doFileSync(event.dest_path)
