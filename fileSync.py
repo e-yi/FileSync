@@ -41,6 +41,9 @@ class FileSync:
         # 自动在同步前清空远端文件夹
         self.autoDelete = d
 
+        # RPC 端口
+        self.rpc_port = slave.PORT
+
         # 符合条件的路径会被排除   {dir:[re]}
         self.ignoreExp = defaultdict(list)
 
@@ -158,22 +161,22 @@ class FileSync:
         :return: bool 是否更新了self.file2md5time
         """
 
-        oldMd5 = self.file2md5time.get(fullPath, None)
+        oldMd5, oldTime = self.file2md5time.get(fullPath, (None, None))
 
         if not os.path.exists(fullPath):
             if oldMd5 is None:
-                return False
+                return False, oldMd5, oldTime
             else:
                 del self.file2md5time[fullPath]
-                return True
+                return True, oldMd5, oldTime
 
         newMd5 = file2md5(fullPath)
         if oldMd5 != newMd5:
-            time = timestamp()
+            time = os.stat(fullPath).st_mtime  # 文件修改时间 时间戳
             self.file2md5time[fullPath] = (newMd5, time)
-            return True
+            return True, oldMd5, oldTime
 
-        return False
+        return False, oldMd5, oldTime
 
     def __updateDirMD5(self, curDir):
         """
@@ -262,16 +265,14 @@ class FileSync:
         # 传输slave脚本并运行
         # slaveDest = os.path.join(self.remoteInfoDir, 'slave.py')
         slaveDest = os.path.join(TEMP_DIR, 'slave.py')
-        scp('./slave.py', slaveDest, self.config)  # 需要添加故障检测？
+        sftp_put('./slave.py', slaveDest, self.config)  # 需要添加故障检测？
         # slaveLog = os.path.join(self.remoteInfoDir, 'slave.log')
         slaveLog = os.path.join(TEMP_DIR, 'slave.log')
-        cmd = 'nohup python %s --mode %s 1>%s 2>&1 &'
-        doRemoteCmd(self.config, cmd % (slaveDest, self.mode, slaveLog))
+        cmd = 'nohup python %s 1>%s 2>&1 &'  # no mode flag
+        doRemoteCmd(self.config, cmd % (slaveDest, slaveLog))
 
         # check if the remote directory exists
-        server = xmlrpclib.ServerProxy(
-            "http://%s:%d/" % (self.config.ssh_host, slave.PORT))
-        code = server.check_path(self.config.remoteDir)
+        code = check_path(self.config.remoteDir, self.config.ssh_host, self.rpc_port)
         if code == slave.CODE_DIR_EMPTY:
             print('remote directory is empty')
         elif code == slave.CODE_DIR_NOT_EMPTY:
@@ -290,7 +291,6 @@ class FileSync:
         else:
             print('can not understand return code')
             exit(1)
-        server.close_server()
 
         print('\nstart sync now...\n')
 
@@ -314,15 +314,12 @@ class FileSync:
         todo 通信安全
         :return:
         """
-        pass
-        # # 传输slave脚本并运行
-        # slaveDest = os.path.join(self.remoteInfoDir, 'slave.py')
-        # scp('./slave.py', slaveDest, self.config)  # 需要添加故障检测？
-        # # slaveLog = os.path.join(self.remoteInfoDir, 'slave.log')
-        # slaveLog = os.path.join(self.remoteInfoDir, 'slave.log')
-        # cmd = 'nohup python %s --mode %s 1>%s 2>&1 &'
-        # doRemoteCmd(self.config, cmd % (slaveDest, self.mode, slaveLog))
-
+        # 传输slave脚本并运行
+        slaveDest = os.path.join(self.remoteInfoDir, 'slave.py')
+        sftp_put('./slave.py', slaveDest, self.config)  # 需要添加故障检测？
+        slaveLog = os.path.join(self.remoteInfoDir, 'slave.log')
+        cmd = 'nohup python %s --mode %s --time_cycle %s 1>%s 2>&1 &'
+        doRemoteCmd(self.config, cmd % (slaveDest, self.mode, self.time_cycle, slaveLog))
 
     def _run(self):
         """
@@ -350,19 +347,18 @@ class FileSync:
 
 
 if __name__ == '__main__':
-    if __name__ == '__main__':
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--config_file', help='path/to/config/file', default='./conf.xml')
-        parser.add_argument('--time_cycle', help='time interval between two synchronizations',
-                            default=10, type=int)
-        parser.add_argument('--mode',
-                            choices=[FileSync.MODE_SYNCHRONIZE, FileSync.MODE_ECHO],
-                            help='choose filesync mode',  # todo
-                            default=FileSync.MODE_ECHO)
-        parser.add_argument('-d', action='store_true',
-                            help="auto delete existing files in remote directory")
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config_file', help='path/to/config/file', default='./conf.xml')
+    parser.add_argument('--time_cycle', help='time interval between two synchronizations',
+                        default=10, type=int)
+    parser.add_argument('--mode',
+                        choices=[FileSync.MODE_SYNCHRONIZE, FileSync.MODE_ECHO],
+                        help='choose filesync mode',  # todo
+                        default=FileSync.MODE_ECHO)
+    parser.add_argument('-d', action='store_true',
+                        help="auto delete existing files in remote directory")
 
-        args = parser.parse_args()
+    args = parser.parse_args()
 
-        fileSync = FileSync(args.config_file, args.mode, args.time_cycle, args.d)
-        fileSync.run()
+    fileSync = FileSync(args.config_file, args.mode, args.time_cycle, args.d)
+    fileSync.run()
