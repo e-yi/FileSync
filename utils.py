@@ -71,20 +71,24 @@ def sftp_put(srcPath, dstPath, cnf):
 
 # -------- RPC ----------
 
-def check_path(path, host, port):
+def create_server(host, port):
     server = xmlrpclib.ServerProxy(
         "http://%s:%s/" % (host, str(port)))
+    return server
+
+
+def check_path(path, server):
     code = server.check_path(path)
-    server.close_server()
     return code
 
 
-def get_md5_time(path, host, port):
-    server = xmlrpclib.ServerProxy(
-        "http://%s:%s/" % (host, str(port)))
+def get_md5_time(path, server):
     md5, time = server.get_md5_time(path)
-    server.close_server()
     return md5, time
+
+
+def close_server(server):
+    server.close_server()
 
 
 # -------- others --------

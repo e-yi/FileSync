@@ -173,6 +173,7 @@ class FileSyncSlave:
     def __init__(self, mode, time_cycle, working_dir):
         print('init slave...')
 
+        print(working_dir)
         # 修改工作目录到上一级
         self.currentDir = os.path.abspath(working_dir)
         print('curDir = %s' % self.currentDir)
@@ -402,6 +403,7 @@ class FileSyncSlave:
                     sleep(self.time_cycle)
             except KeyboardInterrupt:
                 observer.stop()
+                exit(0)
             observer.join()
 
         t = threading.Thread(target=work)
@@ -442,3 +444,4 @@ if __name__ == '__main__':
     while not __doQuit:
         server.handle_request()
     print("end remote service on 0.0.0.0 8081...")
+    exit(0)

@@ -10,9 +10,7 @@ from __future__ import print_function
 import argparse
 import re
 import traceback
-import xmlrpclib
 from collections import defaultdict
-from time import time as timestamp
 from time import sleep
 
 from watchdog.observers import Observer
@@ -52,6 +50,7 @@ class FileSync:
 
         # 读取配置文件
         self.config = ConfigData(configFileName)
+        self.config.show()
 
         # 建立存放同步用数据的文件夹
         self.infoDir = os.path.join(self.config.currentDir, self.INFO_DIR)
@@ -272,7 +271,9 @@ class FileSync:
         doRemoteCmd(self.config, cmd % (slaveDest, slaveLog))
 
         # check if the remote directory exists
-        code = check_path(self.config.remoteDir, self.config.ssh_host, self.rpc_port)
+        server = create_server(self.config.ssh_host, self.rpc_port)
+        code = check_path(self.config.remoteDir, server)
+        close_server(server)
         if code == slave.CODE_DIR_EMPTY:
             print('remote directory is empty')
         elif code == slave.CODE_DIR_NOT_EMPTY:
@@ -318,8 +319,9 @@ class FileSync:
         slaveDest = os.path.join(self.remoteInfoDir, 'slave.py')
         sftp_put('./slave.py', slaveDest, self.config)  # 需要添加故障检测？
         slaveLog = os.path.join(self.remoteInfoDir, 'slave.log')
-        cmd = 'nohup python %s --mode %s --time_cycle %s 1>%s 2>&1 &'
-        doRemoteCmd(self.config, cmd % (slaveDest, self.mode, self.time_cycle, slaveLog))
+        cmd = 'nohup python %s --mode %s --time_cycle %s --working_dir %s 1>%s 2>&1 &'
+        doRemoteCmd(self.config, cmd % (slaveDest, self.mode, self.time_cycle,
+                                        self.config.remoteDir, slaveLog))
 
     def _run(self):
         """
@@ -340,6 +342,8 @@ class FileSync:
         except KeyboardInterrupt:
             observer.stop()
         observer.join()
+        server = create_server(self.config.ssh_host,self.rpc_port)
+        close_server(server)
 
     def run(self):
         self._init()
@@ -353,7 +357,7 @@ if __name__ == '__main__':
                         default=10, type=int)
     parser.add_argument('--mode',
                         choices=[FileSync.MODE_SYNCHRONIZE, FileSync.MODE_ECHO],
-                        help='choose filesync mode',  # todo
+                        help='choose filesync mode',
                         default=FileSync.MODE_ECHO)
     parser.add_argument('-d', action='store_true',
                         help="auto delete existing files in remote directory")

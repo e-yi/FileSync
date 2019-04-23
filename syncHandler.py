@@ -44,8 +44,9 @@ class SyncHandler(FileSystemEventHandler):
                 newMd5, newTime = self.fileSync.file2md5time[srcPath]
 
                 dstPath = getRemotePath(srcPath, self.conf.currentDir, self.conf.remoteDir)
+                server = create_server(self.conf.ssh_host, self.fileSync.rpc_port)
                 remoteMd5, remoteTime = get_md5_time(
-                    dstPath, self.conf.ssh_host, self.fileSync.rpc_port)
+                    dstPath, server)
 
                 if remoteMd5 is None:
                     # the remote file does not exist
@@ -94,8 +95,9 @@ class SyncHandler(FileSystemEventHandler):
                 strcmd = "rm -f {0}".format(dstPath)
                 doRemoteCmd(self.conf, strcmd, printOut=True)
             elif self.mode == self.fileSync.MODE_SYNCHRONIZE:
+                server = create_server(self.conf.ssh_host, self.fileSync.rpc_port)
                 remoteMd5, remoteTime = get_md5_time(
-                    dstPath, self.conf.ssh_host, self.fileSync.rpc_port)
+                    dstPath, server)
 
                 if remoteMd5 is None:
                     # the remote file does not exist
