@@ -435,6 +435,7 @@ if __name__ == '__main__':
         server.register_function(
             lambda fullPath: fileSyncSlave.file2md5time.get(fullPath, (None, None)),
             'get_md5_time')
+        server.register_function(lambda: fileSyncSlave.file2md5time, 'get_md5_time_all')
 
     server.register_function(checkPath, "check_path")
     server.register_function(close, 'close_server')
