@@ -398,13 +398,13 @@ class FileSyncSlave:
         print("\n----watchdog start working----\n")
 
         def work():
-            try:
-                while True:
-                    sleep(self.time_cycle)
-            except KeyboardInterrupt:
-                observer.stop()
-                exit(0)
-            observer.join()
+            global __doQuit
+            while True:
+                sleep(self.time_cycle)
+                if __doQuit:
+                    observer.stop()
+                    exit(0)
+                observer.join()
 
         t = threading.Thread(target=work)
         t.start()
@@ -441,7 +441,10 @@ if __name__ == '__main__':
 
     server.register_function(checkPath, "check_path")
     server.register_function(close, 'close_server')
-    while not __doQuit:
-        server.handle_request()
+    try:
+        while not __doQuit:
+            server.handle_request()
+    except KeyboardInterrupt:
+        pass
     print("end remote service on 0.0.0.0 8081...")
     exit(0)
