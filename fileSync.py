@@ -30,6 +30,9 @@ class FileSync:
     MODE_SYNCHRONIZE = 'synchronize'
 
     def __init__(self, configFileName, mode, time_cycle, d):
+        # 多线程用，quit flag
+        self.quit = False
+
         # 同步模式
         self.mode = mode
 
@@ -61,6 +64,7 @@ class FileSync:
 
         # 读取本地同步文件夹信息
         self._loadDir()
+
 
     def _loadDir(self):
         """
@@ -329,7 +333,7 @@ class FileSync:
         :return:
         """
         # do sync on modify
-        event_handler = SyncHandler(self.config, self.mode, self)
+        event_handler = SyncHandler(self)
         observer = Observer()
         observer.schedule(event_handler, path=self.config.currentDir, recursive=True)
         observer.start()
@@ -338,14 +342,16 @@ class FileSync:
 
         try:
             while True:
-                sleep(self.time_cycle)
+                sleep(1)
         except KeyboardInterrupt:
+            print('stop observer...')
+            self.quit = True
             observer.stop()
         observer.join()
         server = create_server(self.config.ssh_host,self.rpc_port)
         close_server(server)
 
-    def run(self):
+    def runforever(self):
         self._init()
         self._run()
 
@@ -365,4 +371,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     fileSync = FileSync(args.config_file, args.mode, args.time_cycle, args.d)
-    fileSync.run()
+    fileSync.runforever()

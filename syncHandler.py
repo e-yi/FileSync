@@ -5,6 +5,9 @@ from watchdog.events import FileSystemEventHandler
 
 from utils import *
 
+import threading
+from time import sleep
+
 
 # todo 从salve端发送更新请求 & 自身请求
 
@@ -15,10 +18,27 @@ class SyncHandler(FileSystemEventHandler):
     远端确认下版本。
     """
 
-    def __init__(self, conf, mode, fileSync):
-        self.conf = conf
-        self.mode = mode
+    def __init__(self, fileSync):
+        self.conf = fileSync.config
+        self.mode = fileSync.mode
+        self.timeCycle = fileSync.time_cycle
+
         self.fileSync = fileSync
+
+        self.__jobs = {}  # {path:(func,args)}
+
+        def thread_cycle():
+            while not self.fileSync.quit:
+                sleep(self.timeCycle)
+                # 询问远端
+
+                # 最好此时可以锁定所有文件
+                while self.__jobs:
+                    path, (func, args) = self.__jobs.popitem()
+                    func(*args)
+
+        self.__exeThread = threading.Thread(target=thread_cycle)
+        self.__exeThread.start()
 
     def doFileSync(self, src_path):
         srcPath = os.path.abspath(src_path)
@@ -123,7 +143,7 @@ class SyncHandler(FileSystemEventHandler):
         super(SyncHandler, self).on_any_event(event)
         a = list(event.key)
         a[2] = '/' if a[2] else ''
-        print('event "{}" in {}{}'.format(*tuple(a)))
+        print('{} : event "{}" in {}{}'.format(datetime.datetime.now(), *tuple(a)))
 
     def on_created(self, event):
         """
@@ -133,7 +153,7 @@ class SyncHandler(FileSystemEventHandler):
         :param event:
         :return:
         """
-        self.doFileSync(event.src_path)
+        self.__jobs[event.src_path] = (self.doFileSync, (event.src_path,))
 
     def on_modified(self, event):
         """
@@ -143,7 +163,7 @@ class SyncHandler(FileSystemEventHandler):
         :param event:
         :return:
         """
-        self.doFileSync(event.src_path)
+        self.__jobs[event.src_path] = (self.doFileSync, (event.src_path,))
 
     def on_deleted(self, event):
         """
@@ -153,7 +173,8 @@ class SyncHandler(FileSystemEventHandler):
         :param event:
         :return:
         """
-        self.doFileDelete(event.src_path)
+        # self.doFileDelete(event.src_path)
+        self.__jobs[event.src_path] = (self.doFileDelete, (event.src_path,))
 
     def on_moved(self, event):
         """
@@ -163,5 +184,5 @@ class SyncHandler(FileSystemEventHandler):
         :param event:
         :return:
         """
-        self.doFileDelete(event.src_path)
-        self.doFileSync(event.dest_path)
+        self.__jobs[event.src_path] = (self.doFileDelete, (event.src_path,))
+        self.__jobs[event.dest_path] = (self.doFileSync, (event.dest_path,))
