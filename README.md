@@ -1,5 +1,7 @@
 # autoSync
 
+only support echo mode currently
+
 auto sync directury to linux server
 
 to remove CryptographyDeprecationWarning
